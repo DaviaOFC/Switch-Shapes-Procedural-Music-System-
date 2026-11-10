@@ -1,0 +1,5 @@
+function play_panned(_snd, _priority, _loop, _pan, _depth_z = 80) {
+    var _spread = 150;
+    var _snd_id = audio_play_sound_at(_snd, _pan * _spread, 0, _depth_z, 150, 10000, 1, _loop, _priority);
+    return _snd_id;
+}
