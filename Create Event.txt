@@ -1,0 +1,850 @@
+if (instance_number(object_index) > 1) { instance_destroy(); exit; }
+
+bpm = 90; target_bpm = 90; steps_per_loop = 16; current_step = 0; master_mix = 1.0;
+step_timer_us = 0; step_interval_us = 0; current_root_pitch = 1.0; smooth_chord_shift = 0;
+
+total_steps_elapsed = 0; tape_speed = 1.0;
+dub_siren_pitch = 0; dub_siren_vol = 0; dub_siren_timer = 0;
+
+global.comp_sidechain = 1.0; 
+
+if (!variable_global_exists("volume_music")) global.volume_music = 1.0;
+beat_pulse = 0;
+
+notes_scale_tribal     = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24];
+notes_scale_dub        = [0, 3, 5, 6, 7, 10, 12, 15, 17, 19, 22, 24];
+notes_scale_aggressive = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24];
+notes_scale_minimal    = [0, 5, 7, 12, 17, 19, 24];
+notes_scale = notes_scale_tribal;
+
+chord_prog_A = [0, -4, 3, -2]; 
+chord_prog_B = [-4, -2, 0, 3]; 
+chord_offsets = chord_prog_A;
+
+mood_bias = "";
+mood_bias_strength = 0;
+
+current_chord_index = 0; is_section_b = false; pattern_count = 0;
+
+
+
+audio_listener_position(0, 0, 0);
+
+audio_listener_orientation(0, 0, 1000, 0, -1, 0); 
+
+audio_falloff_set_model(audio_falloff_linear_distance);
+
+ping_pong_snare = 1;
+ping_pong_melody = 1;
+ping_pong_ganza = 1;
+
+
+signal_shape_switched = false; signal_collision = false;
+signal_clear_streak = 0;
+
+track_kick = array_create(steps_per_loop, 0); 
+track_snare = array_create(steps_per_loop, 0); 
+track_hat = array_create(steps_per_loop, 0);
+track_bass = array_create(steps_per_loop, 0);
+
+track_melody_active = array_create(steps_per_loop, 0); 
+track_melody_index = array_create(steps_per_loop, 0); 
+track_melody_velocity = array_create(steps_per_loop, 0); 
+track_arp = array_create(steps_per_loop, 0);
+track_arp_note = array_create(steps_per_loop, 0);
+track_gongue = array_create(steps_per_loop, 0);
+track_snare_echo_vol = array_create(steps_per_loop, 0);
+
+vol_kick = 0; target_vol_kick = 0; vol_snare = 0; target_vol_snare = 0; vol_hat = 0; target_vol_hat = 0; 
+vol_melody = 0; target_vol_melody = 0; vol_bass = 0; target_vol_bass = 0; vol_arp = 0; target_vol_arp = 0;
+master_kick   = 0.75;
+master_snare  = 0.50;
+master_hat    = 0.55;
+master_bass   = 1.00;
+master_melody = 1.00;
+master_arp    = 0.80;
+master_noise  = 0.45;
+
+pattern_mood = "tribal"; mood_arp_active = true; mood_snare_echo_chance = 0.0;
+
+bass_patterns_tribal = [
+    [1,0,0,1, 0,1,0,0, 1,0,0,1, 0,0,1,0],
+    [1,0,1,0, 0,0,1,0, 1,0,0,1, 0,1,0,0],
+    [1,0,0,0, 1,0,1,0, 0,1,0,0, 1,0,0,1]
+];
+
+bass_patterns_dub = [
+    [1,0,0,0, 0,1,0,0, 1,0,0,0, 0,0,1,0],
+    [1,0,0,1, 0,0,0,1, 1,0,0,0, 0,1,0,0],
+    [1,0,0,0, 1,0,0,0, 0,1,0,0, 1,0,0,0]
+];
+
+bass_patterns_aggressive = [
+    [1,0,1,0, 1,0,0,1, 1,0,1,0, 0,1,0,0],
+    [1,1,0,0, 1,0,1,0, 1,1,0,0, 1,0,0,1],
+    [1,0,1,1, 0,1,0,0, 1,0,1,1, 0,1,0,0]
+];
+
+bass_patterns_minimal = [
+    [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,1,0,0],
+    [1,0,0,0, 0,1,0,0, 1,0,0,0, 0,0,1,0]
+];
+
+melody_riff_age = 0;
+current_melody_riff = array_create(4, -1);
+last_melody_mood = "";
+
+foley_emitter = audio_emitter_create();
+audio_emitter_falloff(foley_emitter, 150, 10000, 1);
+
+space_emitter = audio_emitter_create();
+audio_emitter_falloff(space_emitter, 150, 10000, 1);
+space_drone_snd = -1;
+
+
+melody_riffs_tribal = [
+    [5, 7, 5, 3],     
+    [3, 5, 7, 5],     
+    [7, 5, 3, -1],    
+    [5, 3, 5, 7]       
+];
+
+melody_riffs_dub = [
+    [5, -1, 7, -1],
+    [7, -1, 5, -1],
+    [3, 5, -1, 7],
+    [7, 5, -1, 3]
+];
+
+melody_riffs_aggressive = [
+    [7, 10, 12, 10],
+    [10, 12, 10, 7],
+    [5, 7, 10, 12],
+    [12, 10, 7, 5]
+];
+
+melody_riffs_minimal = [
+    [5, -1, -1, -1],
+    [7, -1, 5, -1],
+    [3, -1, -1, 5],
+    [-1, 5, -1, 3]
+];
+
+arp_sequences_tribal = [
+	[0,7,12,7], 
+	[0,5,10,5], 
+	[0,3,7,3]
+];
+arp_sequences_dub = [
+	[0,7,12,7], 
+	[0,5,12,5], 
+	[0,7,10,12]
+];
+arp_sequences_aggressive = [
+	[0,12,7,12], 
+	[7,12,7,0], 
+	[0,10,12,10]
+];
+arp_sequences_minimal = [
+	[0,7,0,7], 
+	[0,5,0,5]
+];
+
+snare_patterns_tribal = [
+    
+    [0,0,1,0, 0,0,0,0, 0,1,0,0, 0,0,0,1],
+    [0,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+    [0,0,1,0, 0,0,0,1, 0,0,0,0, 0,1,0,0]
+];
+
+snare_patterns_dub = [
+    
+    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,1],
+    [0,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,1,0],
+    [0,0,0,0, 1,0,0,1, 0,0,0,0, 0,1,0,0]
+];
+
+snare_patterns_aggressive = [
+    
+    [0,0,0,1, 0,0,1,0, 0,0,0,1, 0,1,1,0],
+    [0,1,0,0, 0,0,1,0, 0,1,0,0, 0,0,1,1],
+    [0,0,1,0, 0,1,0,1, 0,0,1,0, 0,1,0,1]
+];
+
+snare_patterns_minimal = [
+    
+    [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    [0,0,0,0, 1,0,0,0, 0,0,0,0, 0,0,1,0]
+];
+
+next_pattern_ready = false;
+next_state = undefined;
+track_kick_next        = array_create(steps_per_loop, 0);
+track_snare_next       = array_create(steps_per_loop, 0);
+track_hat_next         = array_create(steps_per_loop, 0);
+track_bass_next        = array_create(steps_per_loop, 0);
+track_melody_active_next   = array_create(steps_per_loop, 0);
+track_melody_index_next    = array_create(steps_per_loop, 0);
+track_melody_velocity_next = array_create(steps_per_loop, 0);
+track_arp_next         = array_create(steps_per_loop, 0);
+track_arp_note_next    = array_create(steps_per_loop, 0);
+track_gongue_next      = array_create(steps_per_loop, 0);
+
+mood_pressure = ds_map_create();
+ds_map_set(mood_pressure, "tribal", 0);
+ds_map_set(mood_pressure, "dub", 0);
+ds_map_set(mood_pressure, "aggressive", 0);
+ds_map_set(mood_pressure, "minimal", 0);
+
+function transform_riff(_riff, _mode) {
+    var _n   = array_length(_riff);
+    var _out = array_create(_n, -1);
+    var _max = array_length(notes_scale) - 1;
+
+    switch (_mode) {
+        case "transpose": {
+            var _k = choose(-2, -1, 1, 2);
+            for (var i = 0; i < _n; i++)
+                _out[i] = (_riff[i] >= 0) ? clamp(_riff[i] + _k, 0, _max) : -1;
+            break;
+        }
+        case "invert": {
+            var _axis = 5;
+            for (var i = 0; i < _n; i++) {
+                if (_riff[i] >= 0) { _axis = _riff[i]; break; }
+            }
+            for (var i = 0; i < _n; i++)
+                _out[i] = (_riff[i] >= 0) ? clamp(_axis - (_riff[i] - _axis), 0, _max) : -1;
+            break;
+        }
+        case "retrograde": {
+            for (var i = 0; i < _n; i++) _out[i] = _riff[_n - 1 - i];
+            break;
+        }
+        case "rotate": {
+            var _shift = choose(1, 2);
+            for (var i = 0; i < _n; i++) _out[i] = _riff[(i + _shift) % _n];
+            break;
+        }
+        case "thin": {
+            for (var i = 0; i < _n; i++) _out[i] = (i % 2 == 0) ? _riff[i] : -1;
+            break;
+        }
+        case "fill": {
+            for (var i = 0; i < _n; i++) {
+                if (_riff[i] >= 0) {
+                    _out[i] = _riff[i];
+                } else {
+                    var _neighbor = -1;
+                    for (var j = i - 1; j >= 0; j--) {
+                        if (_riff[j] >= 0) { _neighbor = _riff[j]; break; }
+                    }
+                    _out[i] = (_neighbor >= 0) ? clamp(_neighbor + choose(-1, 1), 0, _max) : -1;
+                }
+            }
+            break;
+        }
+        default: {
+            array_copy(_out, 0, _riff, 0, _n);
+        }
+    }
+    return _out;
+}
+
+mood_pressure_decay = 0.8; 
+
+current_state = "menu"; loops_played = 0;
+
+function generate_pattern(is_preview = false) {
+
+    
+    var _kick    = is_preview ? track_kick_next          : track_kick;
+    var _snare   = is_preview ? track_snare_next         : track_snare;
+    var _hat     = is_preview ? track_hat_next           : track_hat;
+    var _bass    = is_preview ? track_bass_next          : track_bass;
+    var _mel_act = is_preview ? track_melody_active_next : track_melody_active;
+    var _mel_idx = is_preview ? track_melody_index_next  : track_melody_index;
+    var _mel_vel = is_preview ? track_melody_velocity_next : track_melody_velocity;
+    var _arp     = is_preview ? track_arp_next           : track_arp;
+    var _arp_n   = is_preview ? track_arp_note_next      : track_arp_note;
+    var _gongue  = is_preview ? track_gongue_next        : track_gongue;
+	
+	var _sv = is_preview ? {
+		mood: pattern_mood,
+		scale: notes_scale,
+		last_melody_mood: last_melody_mood,
+		melody_riff_age: melody_riff_age,
+		riff: current_melody_riff,
+		bias: mood_bias,
+		bias_str: mood_bias_strength,
+		mk: master_kick, ms: master_snare, mh: master_hat, mb: master_bass,
+		mm: master_melody, ma: master_arp, mn: master_noise,
+		arp_active: mood_arp_active,
+		echo_chance: mood_snare_echo_chance,
+		is_breque: is_breque_active,
+		is_breque_exp: is_breque_exposed
+	} : undefined;
+
+	
+var dominant_mood = "";
+var dominant_value = 15;
+
+	var tension_factor = 0;
+    if (room == rm_game && bpm >= 115) tension_factor = clamp((bpm - 115) / 75, 0, 1.0);
+
+var moods = ["tribal", "dub", "aggressive", "minimal"];
+for (var i = 0; i < 4; i++) {
+    var m = moods[i];
+    var v = ds_map_find_value(mood_pressure, m);
+    if (v > dominant_value) {
+        dominant_value = v;
+        dominant_mood = m;
+    }
+}
+
+
+
+if (dominant_mood != "") {
+    
+    mood_bias = dominant_mood;
+    mood_bias_strength = clamp(dominant_value / 100, 0.0, 0.6); 
+} else {
+    mood_bias = "";
+    mood_bias_strength = 0;
+}
+
+    
+    var mood_roll = irandom(99);
+	if (mood_bias != "" && random(1) < mood_bias_strength) {
+		pattern_mood = mood_bias;
+	} else {
+    if (is_section_b) {
+        if (mood_roll < 40) pattern_mood = "aggressive";
+			else if (mood_roll < 70) pattern_mood = "dub";
+			else if (mood_roll < 90) pattern_mood = "tribal";
+			else                     pattern_mood = "minimal";
+    } else {
+		if (mood_roll < 45)      pattern_mood = "tribal";
+			else if (mood_roll < 75) pattern_mood = "dub";
+			else if (mood_roll < 90) pattern_mood = "minimal";
+			else                     pattern_mood = "aggressive";
+		}
+	}
+    var kick_extra_prob  = 0.0;
+    var snare_ghost_prob = 0.0;
+    var hat_density      = 0.0;
+    var melody_fill_prob = 0.0;
+    var gongue_density   = 0.0;
+    var arp_active       = true;
+    var snare_echo_chance = 0.0;
+
+    switch (pattern_mood) {
+        case "tribal":
+            kick_extra_prob  = 0.45; snare_ghost_prob = 0.20;
+            hat_density      = 0.75; melody_fill_prob = 0.55;
+            gongue_density   = 0.90; arp_active       = false;
+            if (!is_preview) { mood_arp_active = false; mood_snare_echo_chance = 0.10; }
+            snare_echo_chance = 0.10;
+        break;
+        case "dub":
+            kick_extra_prob  = 0.25; snare_ghost_prob = 0.15;
+            hat_density      = 0.45; melody_fill_prob = 0.45;
+            gongue_density   = 0.70; arp_active       = true;
+            if (!is_preview) { mood_arp_active = true; mood_snare_echo_chance = 0.55; }
+            snare_echo_chance = 0.55;
+        break;
+        case "aggressive":
+            kick_extra_prob  = 0.65; snare_ghost_prob = 0.10;
+            hat_density      = 0.90; melody_fill_prob = 0.70;
+            gongue_density   = 0.80; arp_active       = true;
+            if (!is_preview) { mood_arp_active = true; mood_snare_echo_chance = 0.20; }
+            snare_echo_chance = 0.20;
+        break;
+        case "minimal":
+            kick_extra_prob  = 0.20; snare_ghost_prob = 0.30;
+            hat_density      = 0.35; melody_fill_prob = 0.30;
+            gongue_density   = 0.55; arp_active       = false;
+            if (!is_preview) { mood_arp_active = false; mood_snare_echo_chance = 0.05; }
+            snare_echo_chance = 0.05;
+        break;
+    }
+	
+	switch (pattern_mood) {
+		case "tribal":
+			master_bass = 0.82;
+			master_hat = 0.65;
+			master_melody = 0.76;
+			master_noise = 0.20;
+		break;
+		case "dub":
+			master_bass = 0.92;
+			master_noise = 0.35;
+			master_arp = 0.75;
+		break;
+		case "aggressive":
+			master_kick = 1.0;
+			master_bass = 0.95;
+			master_noise = 0.55;
+			master_hat = 0.82;
+		break;
+		case "minimal":
+			master_melody = 0.90;
+			master_hat = 0.40;
+			master_noise = 0.48;
+		break;
+	}
+
+    var melody_bank;
+    switch (pattern_mood) {
+        case "tribal":     melody_bank = melody_riffs_tribal;     break;
+        case "dub":        melody_bank = melody_riffs_dub;        break;
+        case "aggressive": melody_bank = melody_riffs_aggressive; break;
+        case "minimal":    melody_bank = melody_riffs_minimal;    break;
+    }
+
+    if (pattern_mood != last_melody_mood) {
+        melody_riff_age = 4;
+        last_melody_mood = pattern_mood;
+    }
+
+    switch (pattern_mood) {
+        case "tribal":     notes_scale = notes_scale_tribal;     break;
+        case "dub":        notes_scale = notes_scale_dub;        break;
+        case "aggressive": notes_scale = notes_scale_aggressive; break;
+        case "minimal":    notes_scale = notes_scale_minimal;    break;
+    }
+
+    if (melody_riff_age >= 4 || random(1) < 0.35) {
+    var pick = melody_bank[irandom(array_length(melody_bank) - 1)];
+    current_melody_riff = [pick[0], pick[1], pick[2], pick[3]];
+		
+    if (random(1) < 0.50) {
+        var _mode = choose("transpose", "invert", "retrograde", "rotate", "thin", "fill");
+        current_melody_riff = transform_riff(current_melody_riff, _mode);
+    }
+        if (random(1) < 0.25) {
+            var idx = irandom(3);
+            if (current_melody_riff[idx] >= 0) {
+                current_melody_riff[idx] = clamp(current_melody_riff[idx] + choose(-2, 2), 0, array_length(notes_scale) - 1);
+            }
+        }
+        melody_riff_age = 0;
+    } else {
+        melody_riff_age++;
+    }
+
+    
+    for (var i = 0; i < steps_per_loop; i++) {
+        _kick[i]=0; _snare[i]=0; _hat[i]=0; _bass[i]=0;
+        _mel_act[i]=0; _mel_vel[i]=0;
+        _arp[i]=0; _gongue[i]=0;
+        if (!is_preview) track_snare_echo_vol[i] = 0;
+    }
+
+    
+		_kick[12] = 0.25;
+		_kick[0]  = 1.0;
+		_kick[8]  = 1.0;
+
+    switch (pattern_mood) {
+        case "tribal":
+            
+            if (random(1) < kick_extra_prob) _kick[4] = 1.0; 
+            if (random(1) > 0.5) _kick[choose(11, 14)] = 0.6; 
+            break;
+            
+        case "dub":
+            
+            if (random(1) < kick_extra_prob) _kick[3] = 1.0;
+            if (random(1) < 0.4) _kick[7] = 0.5; 
+            break;
+            
+        case "aggressive":
+            
+            _kick[4] = 1.0; 
+            _kick[12] = 1.0; 
+            if (random(1) < kick_extra_prob) _kick[choose(2, 6, 10, 14)] = 0.5; 
+            break;
+            
+        case "minimal":
+            
+            if (random(1) < (kick_extra_prob * 0.5)) _kick[10] = 0.7;
+            break;
+    }
+    
+    if (random(1) < 0.35) { 
+			_kick[3] = 0.6;
+		} 
+    
+    var snare_choice;
+
+switch (pattern_mood) {
+    case "tribal":
+        snare_choice = snare_patterns_tribal[irandom(2)];
+    break;
+
+    case "dub":
+        snare_choice = snare_patterns_dub[irandom(2)];
+    break;
+
+    case "aggressive":
+        snare_choice = snare_patterns_aggressive[irandom(2)];
+    break;
+
+    case "minimal":
+        snare_choice = snare_patterns_minimal[irandom(1)];
+    break;
+}
+
+
+for (var i = 0; i < steps_per_loop; i++) {
+    _snare[i] = 0.2;
+}
+
+for (var i = 0; i < steps_per_loop; i++) {
+    if (snare_choice[i] == 1) _snare[i] = 1.0;
+}
+
+for (var i = 1; i < steps_per_loop; i++) {
+    if (_snare[i] == 1 && _snare[i-1] == 0) {
+        var chance_rufo = 0.45 + (tension_factor * 0.35); 
+        
+        if (random(1) < chance_rufo) {
+            _snare[i-1] = 0.3;
+        }
+    }
+}
+
+var _rufo_positions = [7, 11, 15];
+for (var i = 0; i < array_length(_rufo_positions); i++) {
+    var p = _rufo_positions[i];
+    if (random(1) < 0.5 + tension_factor * 0.3) {
+        _snare[(p - 1 + steps_per_loop) % steps_per_loop] = 0.3;
+        _snare[p] = 1.0;
+        if (random(1) < 0.4) {
+            _snare[(p - 2 + steps_per_loop) % steps_per_loop] = 0.3;
+        }
+    }
+}
+
+if (random(1) < snare_ghost_prob) {
+    var ghost_step = choose(2, 6, 9, 13);
+    if (_snare[ghost_step] == 0) {
+        _snare[ghost_step] = 0.4;
+    }
+}
+
+if (random(1) > 0.85) {
+    _snare[14] = 0.3;
+    _snare[15] = 1.0;
+}
+
+for (var i = 0; i < steps_per_loop; i++) {
+    if (track_kick[i] >= 0.8 && _snare[(i + 3) % steps_per_loop] == 0) {
+        _snare[(i + 3) % steps_per_loop] = 0.4;
+    }
+}
+
+    
+    for (var i = 0; i < steps_per_loop; i++) {
+        var on_beat = (i % 2 == 0);
+        var off_beat = (i % 2 != 0);
+
+        switch (pattern_mood) {
+            case "dub":
+                
+                if (off_beat) _hat[i] = 1.0; 
+                else if (random(1) < hat_density) _hat[i] = 0.5; 
+            break;
+
+            case "aggressive":
+                
+                if (i % 4 == 0) _hat[i] = 1.0; 
+                else if (on_beat) _hat[i] = 0.8; 
+                else _hat[i] = (random(1) < hat_density) ? 0.6 : 0.0;
+            break;
+
+            case "tribal":
+            case "minimal":
+                
+                if (on_beat) _hat[i] = 0.8;
+                if (random(1) < hat_density && off_beat) {
+                    
+                    _hat[i] = (i % 4 == 3) ? 1.0 : 0.5; 
+                }
+            break;
+        }
+
+        if (room == rm_game && tension_factor > 0.65 && _hat[i] == 0) {
+            if (random(1) < 0.45) _hat[i] = 0.3;
+        }
+    }
+
+    
+    
+    var gongue_base   = [1.0, 0,   0, 1.0,  0, 0, 0.5, 0,  1.0, 0,   0, 1.0,  0, 0.5, 0, 0];
+    var gongue_extras = [0,   0.5, 0, 0,    0, 0, 0,   0,  0,   0.5, 0, 0,    0, 0,   0, 0];
+    
+    for (var i = 0; i < steps_per_loop; i++) {
+        if (gongue_base[i] > 0) {
+            _gongue[i] = gongue_base[i];
+        } else if (gongue_extras[i] > 0 && random(1) < gongue_density) {
+            _gongue[i] = gongue_extras[i];
+        } else {
+            _gongue[i] = 0;
+        }
+
+        
+        if (tension_factor > 0.8 && _gongue[i] == 0 && random(1) > 0.7) {
+            _gongue[i] = 0.3; 
+        }
+    }
+		
+		for (var i = 0; i < steps_per_loop; i++) {
+    if (track_gongue[i] == 0 && _kick[i] == 0 && random(1) < 0.3) {
+        _kick[i] = 0.6;
+    }
+}
+    
+    var max_idx = array_length(notes_scale) - 1;
+
+    
+        var riff_rhythm = [1, 0, 0, 0]; 
+    if (pattern_mood == "dub" || pattern_mood == "tribal") {
+        if (random(1) > 0.3) riff_rhythm[2] = 1; 
+        if (random(1) > 0.6) riff_rhythm[choose(1, 3)] = 1; 
+    } else {
+        riff_rhythm[2] = 1;
+        if (random(1) > 0.5) riff_rhythm[3] = 1;
+    }
+    
+    
+    if (tension_factor > 0.6 && random(1) > 0.6) {
+        riff_rhythm[1] = 1; 
+    }
+
+    
+    for (var bar = 0; bar < 4; bar++) {
+        var bar_start = bar * 4;
+        var is_answer_bar = (bar == 3);
+
+        for (var k = 0; k < 4; k++) {
+            var step = bar_start + k;
+            var note = -1;
+            var play = false; 
+
+            if (is_answer_bar) {
+                var question_note = current_melody_riff[3 - k]; 
+                play = (question_note >= 0) && (riff_rhythm[k] == 1 || k == 3); 
+                note = question_note;
+
+                if (play) { note = clamp(note - 2, 0, max_idx); }
+                if (k == 3) { note = 0; play = true; } 
+                
+            } else if (bar == 1 && k == 3) {
+                note = current_melody_riff[k];
+                play = (note >= 0) && (riff_rhythm[k] == 1);
+                
+                if (random(1) < melody_fill_prob && !play) {
+                    play = true;
+                    note = current_melody_riff[0]; 
+                }
+            } else {
+                note = current_melody_riff[k];
+                play = (note >= 0) && (riff_rhythm[k] == 1);
+            }
+            
+            
+            
+            
+            
+            if (!play && tension_factor > 0.7 && random(1) > 0.8) {
+                play = true;
+                note = current_melody_riff[clamp(k - 1, 0, 3)]; 
+            }
+            
+            
+            if (play && k == 3 && tension_factor > 0.4) {
+                if (random(1) > 0.7) { 
+                    note = clamp(note + choose(-1, 1), 0, max_idx); 
+                }
+            }
+
+            
+            if (play && note >= 0) {
+                _mel_act[step] = 1;
+                _mel_idx[step] = clamp(note, 0, max_idx);
+                
+                
+                var human_vel = (k == 0) ? random_range(0.9, 1.0) : random_range(0.55, 0.85);
+                
+                if (tension_factor > 0.6 && random(1) > 0.8) {
+                    human_vel = choose(0.2, 1.2); 
+                }
+                
+                _mel_vel[step] = human_vel;
+            }
+        }
+    }
+		
+		if (is_section_b && random(1) < 0.35) {
+    var _rest_bar = choose(1, 2);
+    for (var i = _rest_bar * 4; i < (_rest_bar + 1) * 4; i++) {
+						track_melody_active[i] = 0;
+				}
+		}
+		
+		for (var bar = 0; bar < 4; bar++) {
+    var _has_melody = false;
+    for (var k = 0; k < 4; k++) {
+        if (track_melody_active[bar*4 + k]) { _has_melody = true; break; }
+    }
+    if (!_has_melody) {
+        track_snare[bar*4 + 2] = max(track_snare[bar*4 + 2], 0.7);
+        track_gongue[bar*4 + 3] = max(track_gongue[bar*4 + 3], 0.8);
+    }
+}
+    
+    var bass_choice;
+    switch (pattern_mood) {
+        case "tribal":
+            bass_choice = choose(bass_patterns_tribal[0], bass_patterns_tribal[1], bass_patterns_tribal[2]); break;
+        case "dub":
+            bass_choice = choose(bass_patterns_dub[0], bass_patterns_dub[1], bass_patterns_dub[2]); break;
+        case "aggressive":
+            bass_choice = choose(bass_patterns_aggressive[0], bass_patterns_aggressive[1], bass_patterns_aggressive[2]); break;
+        case "minimal":
+            bass_choice = choose(bass_patterns_minimal[0], bass_patterns_minimal[1]); break;
+    }
+
+    for (var i = 0; i < steps_per_loop; i++) {
+        _bass[i] = bass_choice[i];
+        
+        
+        
+        if (_bass[i] == 0 && (i % 2 != 0) && pattern_mood != "minimal") {
+            
+            if (random(1) < (0.15 * tension_factor)) {
+                _bass[i] = 2; 
+            }
+        }
+
+        
+        if (_bass[i] > 0) {
+            if (_kick[i] == 1.0) {
+                if (random(1) < 0.30) _bass[i] = 2; 
+            } else if (_kick[i] > 0 && _kick[i] < 1.0) {
+                _bass[i] = 0.5; 
+            }
+        }
+        
+        
+        
+        if (i >= 13) {
+            if (random(1) < (0.35 * tension_factor)) {
+                _bass[i] = choose(1, 0.5, 2); 
+            }
+        }
+    }
+
+    
+    var arp_bank;
+    switch (pattern_mood) {
+        case "tribal":     arp_bank = arp_sequences_tribal;     break;
+        case "dub":        arp_bank = arp_sequences_dub;        break;
+        case "aggressive": arp_bank = arp_sequences_aggressive; break;
+        case "minimal":    arp_bank = arp_sequences_minimal;    break;
+    }
+    var _orig = arp_bank[irandom(array_length(arp_bank)-1)];
+	
+	var arp_seq = array_create(array_length(_orig));
+	
+	array_copy(arp_seq, 0, _orig, 0, array_length(_orig));
+    if (current_melody_riff[0] >= 0) {
+    var safe_idx = clamp(current_melody_riff[0], 0, array_length(notes_scale)-1);
+    arp_seq[0] = notes_scale[safe_idx]; 
+}
+    if (random(1) < 0.25) {
+		var mut_idx = irandom(3);
+		var safe_notes = [0, 3, 5, 7, 10, 12]; 
+		arp_seq[mut_idx] = safe_notes[irandom(array_length(safe_notes) - 1)]; 
+	}
+
+    var arp_density = 0.5 + (tension_factor * 0.5);
+    
+    var arp_overclock = (pattern_mood == "aggressive" || tension_factor > 0.7);
+
+    for (var i = 0; i < steps_per_loop; i++) {
+        if (arp_active) {
+            var is_pulse = (i % 4 == 0);
+            
+            if (arp_overclock || is_pulse || random(1) < arp_density) {
+                _arp[i]   = is_pulse ? 1.0 : random_range(0.6, 0.85);
+                _arp_n[i] = arp_seq[i % 4];
+            } else {
+                _arp[i] = 0; _arp_n[i] = 0;
+            }
+        } else {
+            _arp[i] = 0; _arp_n[i] = 0;
+        }
+    }
+
+    
+var _breque = ((pattern_mood == "aggressive" || pattern_mood == "tribal") && random(1) < 0.20);
+if (_breque) {
+    for (var i = 8; i <= 13; i++) {
+        _kick[i]=0; _snare[i]=0; _hat[i]=0; _bass[i]=0;
+        _mel_act[i]=0; _arp[i]=0; _gongue[i]=0;
+    }
+    _gongue[9] = 1.0; _gongue[11] = 1.0;
+    _snare[14] = 0.3;
+    _kick[15] = 1.0; _snare[15] = 1.0; _bass[15] = 2; _gongue[15] = 1.0;
+}
+if (!is_preview) { is_breque_active = _breque; is_breque_exposed = _breque; }
+	
+	if (pattern_mood == "dub" || pattern_mood == "tribal") {
+        if (random(1) < 0.15) { 
+            dub_siren_pitch = random_range(4.0, 6.0); 
+            dub_siren_vol = 1.0;
+        }
+    }
+	
+	if (is_preview) {
+    next_state = {
+        mood: pattern_mood, scale: notes_scale,
+        arp_active: arp_active, echo_chance: snare_echo_chance,
+        mk: master_kick, ms: master_snare, mh: master_hat, mb: master_bass,
+        mm: master_melody, ma: master_arp, mn: master_noise,
+        breque: _breque
+    };
+}
+	
+	if (is_preview && _sv != undefined) {
+		pattern_mood            = _sv.mood;
+		notes_scale             = _sv.scale;
+		last_melody_mood        = _sv.last_melody_mood;
+		melody_riff_age         = _sv.melody_riff_age;
+		current_melody_riff     = _sv.riff;
+		mood_bias               = _sv.bias;
+		mood_bias_strength      = _sv.bias_str;
+		master_kick             = _sv.mk;
+		master_snare            = _sv.ms;
+		master_hat              = _sv.mh;
+		master_bass             = _sv.mb;
+		master_melody           = _sv.mm;
+		master_arp              = _sv.ma;
+		master_noise            = _sv.mn;
+		mood_arp_active         = _sv.arp_active;
+		mood_snare_echo_chance  = _sv.echo_chance;
+		is_breque_active        = _sv.is_breque;
+		is_breque_exposed       = _sv.is_breque_exp;
+	}
+}
+
+noise_snd = snd_noise_vinyl;
+noise_vol = 0; 
+sidechain_envelope = 1.0;
+is_breque_active = false;
+is_breque_exposed = false;
+
+generate_pattern();

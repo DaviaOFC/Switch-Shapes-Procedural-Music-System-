@@ -1,0 +1,606 @@
+if (room == rm_menu || room == rm_stats || room == rm_options || room == rm_achievements || room == rm_campaign_menu) { 
+    target_bpm = 95; target_vol_kick = 1; target_vol_snare = 1; target_vol_hat = 0.6; target_vol_bass = 0.5; target_vol_melody = 0; target_vol_arp = 0; 
+} else if (room == rm_menu_themes || room == rm_synth_lab) { 
+    if (room == rm_menu_themes) { target_bpm = 105; target_vol_kick = 0.5; target_vol_snare = 0; target_vol_hat = 0.5; target_vol_bass = 0.6; target_vol_melody = 0.6; target_vol_arp = 0; } 
+} else if (room == rm_game) { 
+    if (global.game_state.game_mode == "zen") { 
+        target_bpm = 100; target_vol_kick = 0.6; target_vol_snare = 0; target_vol_hat = 0.3; target_vol_bass = 0.7; target_vol_melody = 1.0; target_vol_arp = 0.2; 
+    } else { 
+        var spd = 4; if (instance_exists(obj_spawner)) var spd = global.mangue_game_speed;
+
+        var game_bpm = 115 + ((spd - 4) * 3.5);
+        target_bpm = clamp(game_bpm, 115, 175);
+    
+        target_vol_kick = 1; target_vol_snare = 0.92; target_vol_hat = 0.75;
+        target_vol_bass = 0.7; target_vol_melody = 0.95;
+    
+        if (spd >= 12) {
+            target_vol_arp = clamp((spd - 12) * 0.1, 0, 0.5);
+        } else {
+            target_vol_arp = 0;
+        }
+    
+        if (instance_exists(obj_controller) && obj_controller.event_state == "color_corruption") {
+            target_vol_kick = 1.2; target_vol_snare = 1.2; target_vol_bass = 1.1; target_vol_arp = 1.0; 
+        }
+
+        if (global.mangue_is_paused) {
+            target_vol_kick = 0; target_vol_snare = 0; target_vol_melody = 0.4; target_vol_bass = 0.4; target_vol_arp = 0;
+        }
+        if (instance_exists(obj_gameover) || instance_exists(obj_campaign_result)) {
+            target_bpm = 60; target_vol_kick = 0; target_vol_melody = 0.3; target_vol_bass = 0; target_vol_snare=0; target_vol_arp = 0;
+        }
+    }
+}
+
+var safe_dt = delta_time;
+if (safe_dt > 100000) { 
+    safe_dt = 100000; 
+}
+
+bpm = lerp(bpm, target_bpm, 0.05); step_interval_us = 15000000.0 / bpm; step_timer_us += safe_dt; var vs = 0.02; 
+vol_kick = lerp(vol_kick, target_vol_kick, vs); vol_snare = lerp(vol_snare, target_vol_snare, vs); 
+vol_hat = lerp(vol_hat, target_vol_hat, vs); vol_melody = lerp(vol_melody, target_vol_melody, vs); 
+vol_bass = lerp(vol_bass, target_vol_bass, vs); vol_arp = lerp(vol_arp, target_vol_arp, vs);
+var target_chord_shift = chord_offsets[current_chord_index];
+smooth_chord_shift = lerp(smooth_chord_shift, target_chord_shift, 0.50);
+global.comp_sidechain = lerp(global.comp_sidechain, 1.0, 0.15); 
+
+var tension_factor = 0;
+if (room == rm_game && bpm >= 115) tension_factor = clamp((bpm - 115) / 75, 0, 1.0);
+
+var safety = 0;
+while (step_timer_us >= step_interval_us && safety < 4) {
+    step_timer_us -= step_interval_us;
+    safety++;
+	var master = global.volume_music / 4;
+
+if (master > 0) {
+    var chord_shift = chord_offsets[current_chord_index];
+    current_root_pitch = power(2, chord_shift / 12);
+
+if (signal_shape_switched) {
+    signal_shape_switched = false;
+    var snd_resp = audio_play_sound(snd_agogo_thrrs, 6, false);
+    audio_sound_gain(snd_resp, 0.9 * global.volume_music / 4, 0);
+	
+    ds_map_set(mood_pressure, "minimal",
+	ds_map_find_value(mood_pressure, "minimal") + 18);
+	
+    if (instance_exists(obj_shape)) audio_sound_pitch(snd_resp, (obj_shape.target_shape == "square") 
+		? current_root_pitch * 1.5 
+		: current_root_pitch * 1.0);
+}
+
+if (signal_collision) {
+    signal_collision = false;
+    var snd_col = audio_play_sound(snd_doum, 7, false);
+    audio_sound_gain(snd_col, 0.9 * global.volume_music / 4, 0);
+    audio_sound_pitch(snd_col, random_range(0.98, 1.02));
+	
+	ds_map_set(mood_pressure, "aggressive", 
+	ds_map_find_value(mood_pressure, "aggressive") + 25);
+}
+
+if (signal_clear_streak > 0 && signal_clear_streak % 3 == 0) {
+    
+    if (signal_clear_streak >= 9) {
+        ds_map_set(mood_pressure, "dub",
+            ds_map_find_value(mood_pressure, "dub") + 20);
+    } else {
+        ds_map_set(mood_pressure, "tribal",
+            ds_map_find_value(mood_pressure, "tribal") + 15);
+    }
+}
+
+        var kick_trigger = track_kick[current_step];
+
+    if (tension_factor > 0.7 && current_step >= 13) { kick_trigger = 1.0; }
+
+    if (kick_trigger > 0 && vol_kick > 0.05) {
+        var is_heavy_hit = (kick_trigger >= 0.8);
+
+        if (is_heavy_hit) {
+            sidechain_envelope = 0.15;
+            global.comp_sidechain = 0.15;
+				}
+
+        var elec_mix = 0.35 + (tension_factor * 0.65); 
+        var organic_mix = 1.2 - (tension_factor * 0.15); 
+        
+        if (is_heavy_hit) {
+            var snd_elec = audio_play_sound(snd_kick, 10, false);
+            audio_sound_gain(snd_elec, vol_kick * master_kick * master * master_mix * 0.85 * elec_mix, 0); 
+            audio_sound_pitch(snd_elec, random_range(0.98, 1.02)); 
+        }
+
+        if (is_heavy_hit) {
+            var snd_click = audio_play_sound(snd_caixa3HI, 9, false);
+            audio_sound_gain(snd_click, vol_kick * master_kick * master * master_mix * 0.125, 0);
+            audio_sound_pitch(snd_click, random_range(0.38, 0.45)); 
+        }
+
+        var alf_pitch = random_range(0.97, 1.03) * (is_heavy_hit ? 1.0 : 1.15); 
+        var snd_alf = audio_play_sound(snd_alfaia, 6, false);
+        audio_sound_gain(snd_alf, vol_kick * master_kick * master * master_mix * random_range(1.25, 1.45) * organic_mix * kick_trigger, 0);
+        audio_sound_pitch(snd_alf, alf_pitch);
+
+        if (is_heavy_hit || tension_factor > 0.5) {
+            var sub_vol = is_heavy_hit ? 1.15 : 0.45; 
+            var snd_sub = audio_play_sound(snd_alfaiaLW, 10, false);
+            audio_sound_gain(snd_sub, vol_kick * master_kick * master * master_mix * sub_vol * organic_mix, 0);
+            audio_sound_pitch(snd_sub, 0.65); 
+        }
+        
+        if (is_heavy_hit && vol_kick > 0.5) global.beat_pulse = 1.0; 
+    }
+    
+    var snare_vol_modifier = track_snare[current_step];
+    var is_fill = (loops_played == 3 && current_step >= 12);
+    
+    if (snare_vol_modifier == 1 && vol_snare > 0.05 && random(1) < mood_snare_echo_chance) {
+		var delay_steps = choose(3,3,3,6,9);
+		track_snare_echo_vol[(current_step + delay_steps) % steps_per_loop] = 0.5;
+	}
+
+    if ((snare_vol_modifier > 0 || is_fill) && vol_snare > 0.05) {
+        if (snare_vol_modifier > 0 && snare_vol_modifier < 0.2) {
+					var snd_cama = play_panned(snd_prat, 10, false, 0.0);
+					audio_sound_gain(snd_cama, vol_snare * master_snare * master * master_mix * 0.10, 0);
+					audio_sound_pitch(snd_cama, 1.6);
+				}
+        else if (snare_vol_modifier == 0.3 && !is_fill) {
+            var human_timing = random_range(0.95, 1.05);
+            
+            var snd_r = play_panned(snd_tarol_rufo, 8, false, 0.20); 
+            
+            var rufo_agressivo = 0.6 + (tension_factor * 0.4);
+            audio_sound_gain(snd_r, vol_snare * master_snare * master * master_mix * rufo_agressivo, 0);
+            audio_sound_pitch(snd_r, human_timing);
+            
+        } else {
+            var fill_power = is_fill ? (0.6 + ((current_step - 12) * 0.1)) : 1.0;
+            var final_hit_vol = max(snare_vol_modifier, is_fill ? 0.5 : 0) * fill_power;
+            
+            var is_ghost_note = (snare_vol_modifier == 0.4); 
+
+            var elec_vol_mod = is_ghost_note ? 0.0 : 1.0; 
+            if (elec_vol_mod > 0) {
+                var snd_e = play_panned(snd_snare, 10, false, 0.20);
+                audio_sound_gain(snd_e, vol_snare * master_snare * master * master_mix * final_hit_vol * random_range(0.9, 1.0), 0);
+                audio_sound_pitch(snd_e, random_range(0.95, 1.05));
+            }
+
+            var snd_c = play_panned(snd_caixa3HI, 10, false, 0.20);
+            var acust_vol_mod = is_ghost_note ? 0.9 : 1.0; 
+            audio_sound_gain(snd_c, vol_snare * master_snare * master * master_mix * final_hit_vol * acust_vol_mod * random_range(0.85, 1.0), 0);
+            
+            var human_pitch = random_range(0.98, 1.02);
+            if (is_ghost_note) { human_pitch *= 1.33; }
+            
+            audio_sound_pitch(snd_c, human_pitch);
+        }
+    }
+
+    if (track_snare_echo_vol[current_step] > 0 && vol_snare > 0.05) {
+    var eco_vol = track_snare_echo_vol[current_step];
+    ping_pong_snare *= -1;
+    var eco_pan = 0.75 * ping_pong_snare;
+    
+    var snd_s_eco = play_panned(snd_caixa3_eco_dub, 10, false, eco_pan);
+    
+    audio_sound_gain(snd_s_eco, vol_snare * master_snare * master * master_mix * eco_vol, 0);
+    
+    var tape_degradation = 0.8 + (eco_vol * 0.2); 
+    audio_sound_pitch(snd_s_eco, tape_degradation);
+    
+    if (eco_vol > 0.1) { 
+        var decay_multiplier = random_range(0.58,0.72) + tension_factor * 0.22;
+        track_snare_echo_vol[(current_step + 3) % steps_per_loop] = eco_vol * decay_multiplier; 
+    }
+    track_snare_echo_vol[current_step] = 0;
+}
+
+    var hat_trigger = track_hat[current_step];
+    
+    if (tension_factor > 0.75 && hat_trigger == 0 && random(1) > 0.5) hat_trigger = 0.6;
+    if (pattern_mood == "minimal" && random(1) > 0.7) hat_trigger = 0; 
+
+    if (hat_trigger > 0 && vol_hat > 0.05) {
+        
+        var is_ghost = (hat_trigger <= 0.4);
+        var is_heavy = (hat_trigger == 1.0);
+        
+        var physical_pitch = 1.0 + (1.0 - hat_trigger) * 0.25; 
+        
+        var tension_pitch_choke = (tension_factor > 0.7) ? 1.08 : 1.0; 
+        var final_prat_pitch = physical_pitch * tension_pitch_choke * random_range(0.97, 1.03);
+
+        var hit_dyn = hat_trigger;
+        if (tension_factor > 0.6 && hit_dyn < 1.0) hit_dyn *= 1.25; 
+        
+        var snd_h = play_panned(snd_prat, 5, false, -0.45); 
+        audio_sound_gain(snd_h, vol_hat * 0.40 * master_hat * master * master_mix * hit_dyn * random_range(0.93, 1.0), 0);
+        audio_sound_pitch(snd_h, final_prat_pitch);
+    }
+
+    var gong_trigger = track_gongue[current_step];
+    if (gong_trigger > 0 && vol_hat > 0.05) {
+        
+        var mood_gongue_boost = (pattern_mood == "tribal") ? 1.15 : 1.0;
+        if (is_breque_exposed && current_step != 15) { mood_gongue_boost *= 1.3; } 
+        
+        var is_muted = (gong_trigger == 0.5);
+        var is_ghost = (gong_trigger == 0.3);
+        
+        var gong_pitch = current_root_pitch * 1.0;
+        var gong_vol_final = gong_trigger;
+        
+        var spacial_pan = 0.45; 
+
+        if (is_muted) {
+            gong_pitch *= 1.15; 
+        } else if (is_ghost) {
+            
+            spacial_pan = sin(current_time / 300) * 0.9; 
+            gong_pitch *= 1.35; 
+            gong_vol_final *= 0.5; 
+        }
+
+        var snd_gon = play_panned(snd_gongue, 5, false, spacial_pan); 
+        audio_sound_gain(snd_gon, vol_hat * master_hat * master * master_mix * 1.85 * mood_gongue_boost * gong_vol_final, 0);
+        audio_sound_pitch(snd_gon, gong_pitch);
+    }
+	
+    var on_offbeat = (current_step % 2 != 0); 
+    
+    if ((tension_factor > 0.5 || pattern_mood == "minimal") && on_offbeat) {
+        var snd_elec_hat = play_panned(snd_hat, 4, false, 0.25);
+        
+        audio_sound_gain(snd_elec_hat, vol_hat * master * 0.22, 0);
+        audio_sound_pitch(snd_elec_hat, 1.15);
+    }
+	var bass_trigger = track_bass[current_step];
+	if (bass_trigger > 0 && vol_bass > 0.05) {
+		var is_ghost_bass = (bass_trigger == 0.5);
+    
+		var bass_chord_shift = chord_offsets[current_chord_index];
+		var final_semitone = -24 + bass_chord_shift;
+		if (bass_trigger == 2) final_semitone += 7;
+		var final_pitch = power(2, final_semitone / 12);
+    
+		var duck = global.comp_sidechain; 
+    
+		
+		var low_end_survival = (tension_factor > 0.75) ? 0.05 : 1.0; 
+
+		
+		var overdrive_intensity = 0.10 + (tension_factor * 0.50);
+		if (is_ghost_bass) { overdrive_intensity *= 0.15; }
+
+		var snd1 = audio_play_sound(snd_synth, 8, false);
+		audio_sound_gain(snd1, vol_bass * master_bass * master * master_mix * (is_ghost_bass ? 0.25 : 0.5) * duck * low_end_survival, 0);
+		audio_sound_pitch(snd1, final_pitch);
+    
+		var mix_clean = 1.0 - tension_factor; 
+
+		var snd_b3 = audio_play_sound(snd_synth_od, 8, false); 
+		audio_sound_gain(snd_b3, vol_bass * master_bass * master * master_mix * overdrive_intensity * duck * mix_clean, 0);
+		audio_sound_pitch(snd_b3, final_pitch * 2.002);
+    
+		
+		var snd_sub_neon = audio_play_sound(snd_subbass_neon, 9, false);
+		var sub_pegada_vol = is_ghost_bass ? 0.0 : 0.50;
+		audio_sound_gain(snd_sub_neon, vol_bass * master_bass * master * master_mix * sub_pegada_vol * duck * low_end_survival, 0);
+		audio_sound_pitch(snd_sub_neon, final_pitch * 0.5);
+	}
+
+    var arp_trigger = track_arp[current_step];
+    if (arp_trigger > 0 && vol_arp > 0.05 && mood_arp_active) {
+        
+        var final_semi = track_arp_note[current_step] + chord_shift; 
+        var arp_pitch = power(2, final_semi / 12);
+        
+        arp_pitch *= (tension_factor > 0.75) ? 4.0 : 2.0;
+        
+        var dyn_arp = arp_trigger; 
+        var snd_arp = audio_play_sound(snd_synth, 4, false); 
+        audio_sound_gain(snd_arp, vol_arp * master_arp * master * master_mix * dyn_arp * global.comp_sidechain, 0);
+        
+        audio_sound_pitch(snd_arp, arp_pitch);
+    }
+    
+    
+    var sidechain_duck = 1.0;
+    
+    if (track_kick[current_step] >= 0.8) sidechain_duck = 0.25; 
+    else if (track_kick[current_step] > 0) sidechain_duck = 0.65;
+	
+    if (track_melody_active[current_step] && vol_melody > 0.05) {
+        var idx = track_melody_index[current_step];
+        if (idx >= array_length(notes_scale)) { idx = array_length(notes_scale) - 1; }
+        
+        var scale_note = notes_scale[idx];
+        var final_semitone = scale_note + chord_shift;
+        
+        var analog_wow = sin(current_time / 300) * 0.004;   
+        var analog_flutter = cos(current_time / 65) * 0.0015; 
+        
+        var pitch_drift = 1.0 + analog_wow + analog_flutter;
+        
+        var final_pitch = power(2, final_semitone / 12) * pitch_drift;
+
+        var velocity = track_melody_velocity[current_step];
+        
+        var overdrive_intensity = 0.40 + (tension_factor * 0.85);
+
+        var is_glitch = (velocity > 1.0 || velocity < 0.4); 
+        if (is_glitch) {
+            var electrical_fault = choose(0.96, 1.04); 
+            final_pitch *= electrical_fault; 
+            
+            if (velocity > 1.0 && random(1) > 0.5) {
+                var spark = play_panned(snd_noise_vinyl, 9, false, choose(-1, 1)); 
+                audio_sound_gain(spark, 0.2 * master, 0); 
+            }
+        }
+
+        var width = 1.0; 
+        var detune = 0.012; 
+        
+        var base_vol_clean = vol_melody * master_melody * master * master_mix * 0.55 * sidechain_duck * global.comp_sidechain * velocity;
+        
+        var base_vol_od    = vol_melody * master_melody * master * master_mix * 0.35 * overdrive_intensity * sidechain_duck * global.comp_sidechain * velocity;
+        
+        var base_vol_dirt  = vol_melody * master_melody * master * master_mix * 0.10 * overdrive_intensity * sidechain_duck * global.comp_sidechain * velocity;
+
+                var snd_M = play_panned(snd_newsynth, 8, false, 0);
+        audio_sound_gain(snd_M, base_vol_clean, 0);
+        audio_sound_pitch(snd_M, final_pitch);
+        
+        var snd_odM = play_panned(snd_newsynth_od, 8, false, 0);
+        audio_sound_gain(snd_odM, base_vol_od, 0);
+        audio_sound_pitch(snd_odM, final_pitch);
+
+        
+        var side_vol = 0.4; 
+        
+        var snd_L = play_panned(snd_newsynth, 8, false, -width);
+        audio_sound_gain(snd_L, base_vol_clean * side_vol, 0);
+        audio_sound_pitch(snd_L, final_pitch * (1.0 - detune));
+
+        var snd_R = play_panned(snd_newsynth, 8, false, width);
+        audio_sound_gain(snd_R, base_vol_clean * side_vol, 0);
+        audio_sound_pitch(snd_R, final_pitch * (1.0 + detune)); 
+        
+        var snd_odL = play_panned(snd_newsynth_od, 8, false, -width);
+        audio_sound_gain(snd_odL, base_vol_od * side_vol, 0);
+        audio_sound_pitch(snd_odL, final_pitch * (1.0 - detune));
+
+        var snd_odR = play_panned(snd_newsynth_od, 8, false, width);
+        audio_sound_gain(snd_odR, base_vol_od * side_vol, 0);
+        audio_sound_pitch(snd_odR, final_pitch * (1.0 + detune));
+        
+        var snd_dirt = audio_play_sound(snd_newsynth_od2, 8, false);
+        audio_sound_gain(snd_dirt, base_vol_dirt, 0);
+        audio_sound_pitch(snd_dirt, final_pitch * 0.998);
+		
+		var base_vol_body = vol_melody * master_melody * master * master_mix * 0.15 * sidechain_duck * global.comp_sidechain * velocity;
+		var snd_body = audio_play_sound(snd_newsynth, 8, false);
+		audio_sound_gain(snd_body, base_vol_body, 0); 
+		audio_sound_pitch(snd_body, final_pitch * 2.0); 
+
+        
+        if (tension_factor > 0.4) {
+            var epic_layer_vol = (tension_factor - 0.4) * 1.0; 
+            var snd_epic = audio_play_sound(snd_synth_od, 8, false);
+            audio_sound_gain(snd_epic, vol_melody * master_melody * master * master_mix * velocity * sidechain_duck * epic_layer_vol * global.comp_sidechain, 0);
+            audio_sound_pitch(snd_epic, final_pitch * 1.5); 
+        }
+    }
+    
+	var echo_step = current_step - 3;
+	if (echo_step < 0) echo_step += steps_per_loop;
+	
+	if (track_melody_active[echo_step] && vol_melody > 0.05) {
+		var idx_echo = track_melody_index[echo_step];
+		if (idx_echo >= array_length(notes_scale)) { idx_echo = array_length(notes_scale) - 1; }
+		var echo_pitch = power(2, (notes_scale[idx_echo] + chord_shift) / 12);
+		
+		var is_chord_boundary = (current_step == 0 || current_step == 4 || current_step == 8 || current_step == 12);
+		var echo_vol = is_chord_boundary ? random_range(0.04, 0.08) : random_range(0.08, 0.14);
+		
+		var echo_pitch_mod = echo_pitch * random_range(0.996, 1.0);
+		
+		ping_pong_melody *= -1;
+        var m_pan = 0.85 * ping_pong_melody;
+		
+		var snd_echo = play_panned(snd_synth, 8, false, m_pan);
+		audio_sound_gain(snd_echo, vol_melody * master_melody * master * master_mix * echo_vol * sidechain_duck * global.comp_sidechain, 0);
+		audio_sound_pitch(snd_echo, echo_pitch_mod);
+	}
+	
+    if (is_breque_active) {
+        tape_speed = lerp(tape_speed, 0.35, 0.08);
+    } else {
+        tape_speed = lerp(tape_speed, 1.0, 0.3);
+    }
+
+    if (vol_melody > 0.05) {
+        var pad_pitch = power(2, (smooth_chord_shift - 12) / 12); 
+        var snd_pad = audio_play_sound(snd_newsynth_od2, 6, false); 
+        
+        var pad_vol = vol_melody * master_melody * master * master_mix * 0.50 * global.comp_sidechain;
+        
+        var dub_wobble = (tension_factor < 0.6) ? sin(current_time / 400) * 0.008 : 0; 
+        
+        audio_sound_gain(snd_pad, pad_vol, 0);
+        audio_sound_pitch(snd_pad, (pad_pitch + dub_wobble) * tape_speed); 
+    }
+}
+
+current_step++;
+total_steps_elapsed++;
+if (current_step >= steps_per_loop) {
+    current_step = 0;
+    loops_played++;
+    current_chord_index = (current_chord_index + 1) % array_length(chord_offsets);
+    
+    if (loops_played >= 4) {
+    loops_played = 0;
+    current_chord_index = 0;
+    pattern_count++;
+
+    if (pattern_count >= 4) {
+        pattern_count = 0;
+        is_section_b = !is_section_b;
+        chord_offsets = is_section_b ? chord_prog_B : chord_prog_A;
+
+        var snd_entrada = audio_play_sound(snd_ganza, 6, false);
+        audio_sound_gain(snd_entrada, 1.1 * global.volume_music / 4, 0);
+        audio_sound_pitch(snd_entrada, is_section_b ? 1.15 : 0.9);
+    }
+
+    if (next_pattern_ready) {
+        array_copy(track_kick, 0, track_kick_next, 0, steps_per_loop);
+        array_copy(track_snare, 0, track_snare_next, 0, steps_per_loop);
+        array_copy(track_hat, 0, track_hat_next, 0, steps_per_loop);
+        array_copy(track_bass, 0, track_bass_next, 0, steps_per_loop);
+        array_copy(track_melody_active, 0, track_melody_active_next, 0, steps_per_loop);
+        array_copy(track_melody_index, 0, track_melody_index_next, 0, steps_per_loop);
+        array_copy(track_melody_velocity, 0, track_melody_velocity_next, 0, steps_per_loop);
+        array_copy(track_arp, 0, track_arp_next, 0, steps_per_loop);
+        array_copy(track_arp_note, 0, track_arp_note_next, 0, steps_per_loop);
+        array_copy(track_gongue, 0, track_gongue_next, 0, steps_per_loop);
+				if (next_state != undefined) {
+					pattern_mood = next_state.mood; 
+					notes_scale = next_state.scale;
+					mood_arp_active = next_state.arp_active;
+					mood_snare_echo_chance = next_state.echo_chance;
+					master_kick = next_state.mk;
+					master_snare = next_state.ms;
+					master_hat = next_state.mh;
+					master_bass = next_state.mb;
+					master_melody = next_state.mm;
+					master_arp = next_state.ma;
+					master_noise = next_state.mn;
+					is_breque_active = next_state.breque;
+					is_breque_exposed = next_state.breque;
+					next_state = undefined;
+				}
+        next_pattern_ready = false;
+    } else {
+        generate_pattern();
+    }
+}
+
+    var moods = ["tribal", "dub", "aggressive", "minimal"];
+    for (var i = 0; i < 4; i++) {
+        var m = moods[i];
+        var current = ds_map_find_value(mood_pressure, m);
+        var decayed = current * mood_pressure_decay;
+        if (decayed < 0.5) decayed = 0;  
+        ds_map_set(mood_pressure, m, decayed);
+    }
+}
+
+if (current_step == 12 && !next_pattern_ready) {
+    generate_pattern(true);
+    next_pattern_ready = true;
+
+    for (var i = 13; i < steps_per_loop; i++) {
+        if (track_arp_next[i] == 1 && track_arp[i] == 0) {
+            if (random(1) < 0.35) {
+                track_arp[i]      = 1;
+                track_arp_note[i] = track_arp_note_next[i];
+            }
+        }
+    }
+}
+
+}
+
+if (global.volume_music > 0) {
+
+    sidechain_envelope = lerp(sidechain_envelope, 1.0, 0.15); 
+
+        if (noise_snd != -1) {
+        if (!audio_is_playing(noise_snd)) {
+            var ns = audio_play_sound(noise_snd, 1, true);
+            noise_snd = ns;
+        }
+        
+        var base_noise_vol = 0.0;
+        if (pattern_mood == "aggressive") base_noise_vol = 0.85;
+        else if (pattern_mood == "dub") base_noise_vol = 0.65;
+        else if (pattern_mood == "tribal") base_noise_vol = 0.50;
+        else base_noise_vol = 0.35;
+        
+        if (tension_factor > 0.75) base_noise_vol += 0.3;
+        
+        var master = global.volume_music / 4;
+        noise_vol = lerp(noise_vol, base_noise_vol * master, 0.03);
+        
+		if (!audio_is_playing(noise_snd)) {
+			var ns = audio_play_sound_on(foley_emitter, snd_noise_vinyl, true, 1);
+			noise_snd = ns;
+		}
+
+		var timer = current_time / 1000.0;
+		var velocidade_orbita = 0.5;
+
+		var auto_pan_x = sin(timer * velocidade_orbita) * 150;
+		var auto_pan_z = cos(timer * velocidade_orbita) * 150;
+		audio_emitter_position(foley_emitter, auto_pan_x, 0, auto_pan_z);
+
+		audio_sound_gain(noise_snd, noise_vol * master_noise * sidechain_envelope, 0);
+		var radio_pitch = 1.0; 
+        
+        if (tape_speed < 0.9 || (pattern_mood == "dub" && random(1) > 0.98)) {
+            
+            radio_pitch = choose(0.2, 0.5, 2.5, 3.0) * random_range(0.9, 1.1);
+        }
+        
+        audio_sound_pitch(noise_snd, radio_pitch * tape_speed);
+    
+    if (!audio_is_playing(space_drone_snd)) {
+        var drone = audio_play_sound_on(space_emitter, snd_newsynth_od2, true, 2);
+        space_drone_snd = drone;
+    }
+
+    var orbit_timer = current_time / 4500.0; 
+    var doppler_timer = current_time / 2000.0; 
+    var breath_timer = current_time / 3000.0; 
+    
+    var space_x = sin(orbit_timer) * 150; 
+    var space_z = cos(orbit_timer) * 150; 
+    audio_emitter_position(space_emitter, space_x, 0, space_z);
+    
+    var space_pitch = 2.3 + (cos(doppler_timer) * 0.15); 
+    
+    audio_sound_pitch(space_drone_snd, space_pitch * tape_speed); 
+    
+    var vol_osc = (sin(breath_timer) + 1.0) / 2.0; 
+    var base_space_vol = 0.35 * (global.volume_music / 4); 
+    
+    if (pattern_mood == "aggressive") {
+        base_space_vol *= 0.1;
+    } else if (pattern_mood == "dub") {
+        base_space_vol *= 1.4; 
+    }
+    
+    audio_sound_gain(space_drone_snd, vol_osc * base_space_vol * sidechain_envelope, 0);
+    }
+
+    if (dub_siren_vol > 0.01) {
+        
+        dub_siren_pitch = lerp(dub_siren_pitch, 0.5, 0.04); 
+        dub_siren_vol = lerp(dub_siren_vol, 0, 0.03); 
+
+        var siren_pan = sin(current_time / 100) * 0.8;
+        var snd_sir = play_panned(snd_newsynth, 9, false, siren_pan);
+               
+        audio_sound_gain(snd_sir, dub_siren_vol * 0.25 * (global.volume_music / 4) * sidechain_envelope, 0);
+        audio_sound_pitch(snd_sir, dub_siren_pitch);
+    }
+}

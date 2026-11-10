@@ -1,0 +1,21 @@
+if (variable_instance_exists(id, "mood_pressure")) {
+    if (ds_exists(mood_pressure, ds_type_map)) {
+        ds_map_destroy(mood_pressure);
+    }
+}
+
+if (variable_instance_exists(id, "foley_emitter")) {
+    if (audio_emitter_exists(foley_emitter)) {
+        audio_emitter_free(foley_emitter);
+    }
+}
+
+if (variable_instance_exists(id, "space_emitter")) {
+    if (audio_emitter_exists(space_emitter)) {
+        audio_emitter_free(space_emitter);
+    }
+}
+
+track_kick = -1; track_snare = -1; track_hat = -1; track_bass = -1;
+track_melody_active = -1; track_melody_index = -1; track_melody_velocity = -1;
+track_arp = -1; track_arp_note = -1; track_gongue = -1;
